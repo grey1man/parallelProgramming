@@ -1,79 +1,135 @@
-#include <set>
-#include <vector>
 #include <iostream>
-#include <omp.h>
-#include <chrono>
-#include <bitset>
 
-#define SIZE_OF_SET 29
+#include <mpi.h>
 
-long long unsigned int factorial(int value){
-    long long unsigned int answ = 1;
-    for (int i = 1; i <= value; i++){
-        answ *= i;
-    }
-    return answ;
-}
+#define FIRST_THREAD 0
 
-int main(){
-    std::set<int> setOfValues;
-
-    int randElement;
-
-    
-    for (int i = 0; i < SIZE_OF_SET; i++){
-        randElement = rand() % (SIZE_OF_SET + SIZE_OF_SET + 1) - SIZE_OF_SET;
-        if (randElement == 0){
-            randElement = 1;
+bool check(int i, int n, int* a){
+    int sum = 0;
+    for(int j = 0; j < n; j++){
+            if(i & (1 << j)){
+                sum += a[j];
+            }
         }
-        setOfValues.insert(randElement);
-        
-    }
-    
-    std::cout << "Set: ";
-    for (auto element: setOfValues){
-        std::cout << element << " ";
-    }
-    std::cout << std::endl;
-
-    long long unsigned int combinationQuantity = 0;
-    for (int i = 1; i < setOfValues.size(); i++){
-        combinationQuantity += factorial(setOfValues.size()) / (factorial(i) * factorial(setOfValues.size() - i));
-    }
-
-    std::bitset<SIZE_OF_SET> setMask;
-    long long int tmpValue = 0;
-    bool isFoundSolution = false;
-    std::vector<int> solution;
-
-    auto t0 = std::chrono::high_resolution_clock::now();
-
-#pragma omp parallel for shared(setOfValues, combinationQuantity, isFoundSolution, solution) private(setMask, tmpValue)
-    for (int i = 1; i <= combinationQuantity; i++){
-        if (!isFoundSolution){
-            setMask = i;
-            for (int j = 0; j < setMask.size(); j++){
-                if (setMask[j] == 1)
-                    tmpValue += *(std::next(setOfValues.begin(), j));
-            }
-            if (tmpValue == 0){
-                isFoundSolution = true;
-                for (int j = 0; j < setMask.size(); j++)
-                    if (setMask[j] == 1)
-                        solution.push_back(*(std::next(setOfValues.begin(), j)));
-            }
-            tmpValue = 0;   
-        } 
-    }
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<float> fs = t1 - t0;
-    std::chrono::milliseconds d = std::chrono::duration_cast<std::chrono::milliseconds>(fs);
-
-    std::cout << "Solution is: ";
-    for (auto element: solution)
-        std::cout << element << " ";
-    
-    std::cout << std::endl;
-    std::cout << "Elapsed time: " << d.count() << "ms\n";
+    if (sum == 0)
+        return true;
+    return false;
 }
+
+int main(int argc, char **argv){
+    int a[] = {1, 2, 3, -5}; 
+    int n = sizeof(a) / sizeof(a[0]);
+
+    int crutch = 0;
+
+    bool isFound = false;
+
+    int thread, thread_quantity, processor_name_length;
+	char* processor_name = new char[MPI_MAX_PROCESSOR_NAME * sizeof(char)];
+
+    MPI_Status status;
+
+    // Инициализируем работу MPI
+	MPI_Init(&argc, &argv);
+	
+	// Получаем имя физического процессора
+	MPI_Get_processor_name(processor_name, &processor_name_length);
+	
+	// Получаем номер конкретного процесса на котором запущена программа
+	MPI_Comm_rank(MPI_COMM_WORLD, &thread);
+	
+	// Получаем количество запущенных процессов
+	MPI_Comm_size(MPI_COMM_WORLD, &thread_quantity);
+
+    int buff[thread_quantity - 1];
+    int buffFullness = 0;
+
+    bool isEnd = false;
+    int answThread = -1;
+    if (thread == FIRST_THREAD){
+        for(int i = (1 << n) - 1; i >=0; i--){
+
+            if (isEnd){
+                break;
+            }
+
+            buff[buffFullness] = i;
+            buffFullness += 1;
+
+            if (buffFullness == thread_quantity - 1){
+                for (int threadNum = 1; threadNum < thread_quantity; threadNum++)
+                    MPI_Send(&buff[threadNum - 1], 1, MPI_INT, threadNum, 0, MPI_COMM_WORLD);
+                
+                for (int threadNum = 1; threadNum < thread_quantity; threadNum++){
+                    MPI_Recv(&isFound, 1, MPI_CXX_BOOL, threadNum, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                    if (isFound){
+                        isEnd = isFound;
+                        answThread = threadNum;
+                    }    
+                }
+                buffFullness = 0;
+            }
+        }
+
+    for (int threadNum = 1; threadNum <= buffFullness; threadNum++)
+        MPI_Send(&buff[threadNum - 1], 1, MPI_INT, threadNum + 1, 0, MPI_COMM_WORLD);
+    
+    for (int threadNum = 1; threadNum <= buffFullness; threadNum++){
+        MPI_Recv(&isFound, 1, MPI_CXX_BOOL, threadNum, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        if (isFound){
+            answThread = threadNum;
+            break;
+        }
+    }
+
+    //must think more about that
+    for (int threadNum = 1; threadNum < thread_quantity; threadNum++){
+        if (answThread == threadNum)
+            continue;
+        MPI_Send(&crutch, 1, MPI_INT, threadNum, 0, MPI_COMM_WORLD);
+    }
+    
+    if (isFound){
+        if (thread == FIRST_THREAD){
+        int answ;
+        MPI_Recv(&answ, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+        std::cout << "answer is ";
+        for(int j = 0; j < n; j++){
+                if(answ & (1 << j)){
+                    std::cout << a[j] << " ";
+                }
+            }
+        }
+    }
+    else{
+        std::cout << "No such subset" << std::endl;
+    }
+    }
+    else{
+        int numberForChecking;
+        while (!isFound){
+            MPI_Recv(&numberForChecking, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+            if (numberForChecking == 0)
+                break;
+
+            isFound = check(numberForChecking, n, a);
+            MPI_Send(&isFound, 1, MPI_CXX_BOOL, FIRST_THREAD, 0, MPI_COMM_WORLD);
+        }
+
+        if (isFound)
+            MPI_Send(&numberForChecking, 1, MPI_INT, FIRST_THREAD, 0, MPI_COMM_WORLD);
+    }
+
+    
+
+    MPI_Finalize();
+	return 0;
+}
+
+// for(int j = 0; j < n; j++){
+//             if(i & (1 << j)){
+//                 std::cout << a[j] << " ";
+//             }
+//         }
