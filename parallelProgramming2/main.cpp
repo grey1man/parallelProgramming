@@ -52,7 +52,7 @@ int main(int argc, char **argv){
                         std::cout << a[j] << " ";
                     }
                 }
-
+            MPI_Abort(MPI_COMM_WORLD, 1);
             MPI_Finalize();
             return 0;
         }
