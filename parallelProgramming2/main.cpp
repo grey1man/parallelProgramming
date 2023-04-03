@@ -1,28 +1,15 @@
 #include <iostream>
+#include <chrono>
 
 #include <mpi.h>
 
-#define FIRST_THREAD 0
-
-bool check(int i, int n, int* a){
-    int sum = 0;
-    for(int j = 0; j < n; j++){
-            if(i & (1 << j)){
-                sum += a[j];
-            }
-        }
-    if (sum == 0)
-        return true;
-    return false;
-}
-
 int main(int argc, char **argv){
-    int a[] = {1, 2, 3, -5}; 
+    int a[] = {1, 2, 3, 32, 6, 7, 8, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 2, 35, 9, 1523, 221, 25321, 87, 45, 56, 7, 8, 123, -5}; 
     int n = sizeof(a) / sizeof(a[0]);
+    int sum = 0;
+    bool flag = false;
 
-    int crutch = 0;
-
-    bool isFound = false;
+    MPI_Request request;
 
     int thread, thread_quantity, processor_name_length;
 	char* processor_name = new char[MPI_MAX_PROCESSOR_NAME * sizeof(char)];
@@ -41,95 +28,35 @@ int main(int argc, char **argv){
 	// Получаем количество запущенных процессов
 	MPI_Comm_size(MPI_COMM_WORLD, &thread_quantity);
 
-    int buff[thread_quantity - 1];
-    int buffFullness = 0;
-
-    bool isEnd = false;
-    int answThread = -1;
-    if (thread == FIRST_THREAD){
-        for(int i = (1 << n) - 1; i >=0; i--){
-
-            if (isEnd){
-                break;
-            }
-
-            buff[buffFullness] = i;
-            buffFullness += 1;
-
-            if (buffFullness == thread_quantity - 1){
-                for (int threadNum = 1; threadNum < thread_quantity; threadNum++)
-                    MPI_Send(&buff[threadNum - 1], 1, MPI_INT, threadNum, 0, MPI_COMM_WORLD);
-                
-                for (int threadNum = 1; threadNum < thread_quantity; threadNum++){
-                    MPI_Recv(&isFound, 1, MPI_CXX_BOOL, threadNum, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                    if (isFound){
-                        isEnd = isFound;
-                        answThread = threadNum;
-                    }    
-                }
-                buffFullness = 0;
-            }
-        }
-
-    for (int threadNum = 1; threadNum <= buffFullness; threadNum++)
-        MPI_Send(&buff[threadNum - 1], 1, MPI_INT, threadNum + 1, 0, MPI_COMM_WORLD);
-    
-    for (int threadNum = 1; threadNum <= buffFullness; threadNum++){
-        MPI_Recv(&isFound, 1, MPI_CXX_BOOL, threadNum, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        if (isFound){
-            answThread = threadNum;
-            break;
-        }
-    }
-
-    //must think more about that
-    for (int threadNum = 1; threadNum < thread_quantity; threadNum++){
-        if (answThread == threadNum)
-            continue;
-        MPI_Send(&crutch, 1, MPI_INT, threadNum, 0, MPI_COMM_WORLD);
-    }
-    
-    if (isFound){
-        if (thread == FIRST_THREAD){
-        int answ;
-        MPI_Recv(&answ, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-        std::cout << "answer is ";
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for(int i = (1 << n) - 1 - thread; i >=0; i -= thread_quantity){
         for(int j = 0; j < n; j++){
-                if(answ & (1 << j)){
-                    std::cout << a[j] << " ";
+                if (flag){
+                    return 0;
+                }
+                if(i & (1 << j)){
+                    sum += a[j];
                 }
             }
+        if (sum == 0){
+            std::cout << "found" << std::endl;
+            auto t1 = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<float> fs = t1 - t0;
+            std::chrono::milliseconds d = std::chrono::duration_cast<std::chrono::milliseconds>(fs);
+
+            std::cout << "Elapsed time: " << d.count() << "ms\n";
+
+            std::cout << "answer is ";
+            for(int j = 0; j < n; j++){
+                    if(i & (1 << j)){
+                        std::cout << a[j] << " ";
+                    }
+                }
+
+            MPI_Finalize();
+            return 0;
         }
-    }
-    else{
-        std::cout << "No such subset" << std::endl;
-    }
-    }
-    else{
-        int numberForChecking;
-        while (!isFound){
-            MPI_Recv(&numberForChecking, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-            if (numberForChecking == 0)
-                break;
-
-            isFound = check(numberForChecking, n, a);
-            MPI_Send(&isFound, 1, MPI_CXX_BOOL, FIRST_THREAD, 0, MPI_COMM_WORLD);
-        }
-
-        if (isFound)
-            MPI_Send(&numberForChecking, 1, MPI_INT, FIRST_THREAD, 0, MPI_COMM_WORLD);
+        sum = 0; 
     }
 
-    
-
-    MPI_Finalize();
-	return 0;
 }
-
-// for(int j = 0; j < n; j++){
-//             if(i & (1 << j)){
-//                 std::cout << a[j] << " ";
-//             }
-//         }
