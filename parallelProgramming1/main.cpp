@@ -87,11 +87,12 @@ int main(){
     int singlesQuantity = 0;
     while (!isSorted){
 
-#pragma omp parallel for shared(partitions, partitionsTmp, singlesQuantity)
+#pragma omp parallel for shared(partitions, partitionsTmp, singlesQuantity) private(random, seg)
         for (auto segment: partitions){
 
             if (segment.first == segment.second){
                 partitionsTmp.push_back(segment);
+                #pragma omp atomic
                 singlesQuantity++;
                 continue;
             }
